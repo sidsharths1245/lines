@@ -77,7 +77,7 @@
     .active-listening .status-badge { display: block; background: var(--me-color); color: #000; animation: listen-pulse 1.5s infinite; }
     @keyframes listen-pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
 
-    /* Transcribed Speech Overlay (Now clickable for mobile) */
+    /* Transcribed Speech Overlay (Clickable) */
     #transcription-overlay { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); color: var(--text); padding: 12px 24px; border-radius: 30px; font-size: 0.95rem; font-weight: bold; opacity: 0; transition: 0.3s; z-index: 100; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; cursor: pointer; pointer-events: auto; }
     #transcription-overlay span { color: var(--highlight); }
   </style>
@@ -162,11 +162,19 @@
     
     let isRehearsing = false;
     let currentLineIndex = 0;
-    let recognition = null;
     let rehearsalAudio = new Audio();
     let mediaRecorder = null;
     let activeRecordingIndex = -1;
     let audioChunks = [];
+
+    // --- GLOBAL SPEECH ENGINE STATE ---
+    let recognition = null;
+    let activeListenResolve = null;
+    let activeCleanExpected = [];
+    let activeTriggerPhrase = "";
+    let activeRequiredLength = 0;
+    let activeBlockIndex = -1;
+    let hasAdvanced = false;
 
     // DOM
     const uploadInput = document.getElementById('pdf-upload');
@@ -178,6 +186,7 @@
     const transcriptionOverlay = document.getElementById('transcription-overlay');
 
     window.onload = async () => {
+      // 1. Initialize Global Speech Engine
       if ('webkitSpeechRecognition' in window) {
         recognition = new webkitSpeechRecognition();
         recognition.continuous = true;
@@ -187,7 +196,41 @@
         recognition.onstart = () => {
           transcriptionOverlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
           transcriptionOverlay.style.color = 'var(--text)';
-          transcriptionOverlay.style.pointerEvents = 'auto'; // ensure tappable
+        };
+
+        // GLOBAL ON RESULT (Runs constantly, but only processes when it's your turn)
+        recognition.onresult = (event) => {
+          if (!activeListenResolve || hasAdvanced) return; 
+          
+          let interimTranscript = '';
+          let finalTranscript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+            else interimTranscript += event.results[i][0].transcript;
+          }
+          
+          const currentSpeech = (finalTranscript + " " + interimTranscript).toLowerCase();
+          transcriptionOverlay.innerHTML = `Heard: <span>"${currentSpeech}"</span><br><span style="font-size:0.8rem; font-weight:normal;">(Tap here to skip)</span>`;
+
+          activeCleanExpected.forEach((cleanWord, wIdx) => {
+            if (!cleanWord) return;
+            const span = document.getElementById(`word-${activeBlockIndex}-${wIdx}`);
+            if (!span) return;
+            const regex = new RegExp(`\\b${cleanWord}\\b`, 'i');
+            if (regex.test(currentSpeech)) span.classList.add('highlighted-word');
+            else span.classList.remove('highlighted-word');
+          });
+
+          if ((activeTriggerPhrase && currentSpeech.includes(activeTriggerPhrase)) || finalTranscript.trim().length > activeRequiredLength) {
+            forceAdvance();
+          }
+        };
+
+        // AUTO-RESTART: Mobile browsers aggressively kill silent mics. If it dies, restart it automatically without breaking the flow.
+        recognition.onend = () => {
+            if (isRehearsing) {
+                try { recognition.start(); } catch(e) {}
+            }
         };
 
         recognition.onerror = (event) => {
@@ -220,6 +263,28 @@
         renderScriptUI();
       }
     };
+
+    // Global Manual Advance Helpers
+    function forceAdvance() {
+      if (hasAdvanced || !activeListenResolve) return;
+      hasAdvanced = true;
+      const tempResolve = activeListenResolve;
+      activeListenResolve = null; // Instantly lock out further processing
+      transcriptionOverlay.style.opacity = '0';
+      tempResolve();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && activeListenResolve) {
+        e.preventDefault();
+        forceAdvance();
+      }
+    });
+
+    transcriptionOverlay.onclick = () => {
+      if (activeListenResolve) forceAdvance();
+    };
+
 
     btnClear.onclick = async () => {
       if(confirm("Are you sure you want to clear your script and all recordings?")) {
@@ -426,6 +491,9 @@
       charSelect.disabled = true;
       document.querySelectorAll('.btn-record-line').forEach(btn => btn.disabled = true);
       
+      // Start global microphone ONCE
+      try { recognition.start(); } catch(e) {}
+      
       for (currentLineIndex = 0; currentLineIndex < parsedScript.length; currentLineIndex++) {
         if (!isRehearsing) break;
 
@@ -439,7 +507,9 @@
         if (block.character === myCharacter) {
           domEl.classList.add('active-listening');
           domEl.querySelector('.status-badge').textContent = 'Listening... (Speak your line)';
-          await listenForMyLine(block.text, currentLineIndex);
+          
+          await listenForMyLine(block.text, currentLineIndex); // Execution pauses here until resolved globally
+          
           domEl.classList.remove('active-listening');
         } else {
           domEl.classList.add('active-reading');
@@ -460,8 +530,11 @@
       charSelect.disabled = false;
       document.querySelectorAll('.btn-record-line').forEach(btn => btn.disabled = false);
       
+      // Stop global microphone
       if (recognition) recognition.stop();
       rehearsalAudio.pause();
+      
+      activeListenResolve = null; // Kill any active listeners
       
       document.querySelectorAll('.active-reading, .active-listening').forEach(el => el.classList.remove('active-reading', 'active-listening'));
       document.querySelectorAll('.highlighted-word').forEach(el => el.classList.remove('highlighted-word'));
@@ -480,72 +553,25 @@
       });
     }
 
+    // Configures the global listener for the current line
     function listenForMyLine(expectedText, blockIndex) {
       return new Promise((resolve) => {
         transcriptionOverlay.style.opacity = '1';
         transcriptionOverlay.innerHTML = 'Listening... <br><span style="font-size:0.8rem; font-weight:normal;">(Tap here or press SPACE to skip)</span>';
         
-        let hasAdvanced = false;
+        hasAdvanced = false;
+        activeBlockIndex = blockIndex;
         
         const expectedWords = expectedText.split(' ');
-        const cleanExpected = expectedWords.map(w => w.replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
-        const triggerWords = cleanExpected.filter(w => w.length > 0);
-        const triggerPhrase = triggerWords.slice(-3).join(" "); 
+        activeCleanExpected = expectedWords.map(w => w.replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
+        const triggerWords = activeCleanExpected.filter(w => w.length > 0);
+        activeTriggerPhrase = triggerWords.slice(-3).join(" "); 
         
-        // NEW: Dynamic length requirement based on the line (85% of line length)
         const expectedLength = expectedText.length;
-        const requiredTranscriptLength = Math.max(10, expectedLength * 0.85); 
-
-        recognition.onresult = (event) => {
-          if (hasAdvanced) return;
-          
-          let interimTranscript = '';
-          let finalTranscript = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-            else interimTranscript += event.results[i][0].transcript;
-          }
-          
-          const currentSpeech = (finalTranscript + " " + interimTranscript).toLowerCase();
-          transcriptionOverlay.innerHTML = `Heard: <span>"${currentSpeech}"</span><br><span style="font-size:0.8rem; font-weight:normal;">(Tap here to skip)</span>`;
-
-          cleanExpected.forEach((cleanWord, wIdx) => {
-            if (!cleanWord) return;
-            const span = document.getElementById(`word-${blockIndex}-${wIdx}`);
-            if (!span) return;
-            const regex = new RegExp(`\\b${cleanWord}\\b`, 'i');
-            if (regex.test(currentSpeech)) span.classList.add('highlighted-word');
-            else span.classList.remove('highlighted-word');
-          });
-
-          // NEW: Only advance if trigger phrase is hit, OR if finalized speech length is 85% of total line length
-          if ((triggerPhrase && currentSpeech.includes(triggerPhrase)) || finalTranscript.trim().length > requiredTranscriptLength) {
-            finishListening();
-          }
-        };
-
-        const manualAdvance = (e) => { 
-          if (e && e.code && e.code !== 'Space') return; // Ensure only spacebar triggers if it's a keyboard event
-          e?.preventDefault(); 
-          finishListening(); 
-        };
+        activeRequiredLength = Math.max(10, expectedLength * 0.85); 
         
-        window.addEventListener('keydown', manualAdvance);
-        
-        // NEW: Make the overlay tappable for mobile skipping
-        transcriptionOverlay.onclick = () => { finishListening(); };
-
-        function finishListening() {
-          if (hasAdvanced) return;
-          hasAdvanced = true;
-          recognition.stop();
-          window.removeEventListener('keydown', manualAdvance);
-          transcriptionOverlay.onclick = null; // cleanup click listener
-          transcriptionOverlay.style.opacity = '0';
-          resolve();
-        }
-
-        try { recognition.start(); } catch(e) { console.error("Mic start failed", e); }
+        // Hand off control to the global onresult listener
+        activeListenResolve = resolve;
       });
     }
   </script>
