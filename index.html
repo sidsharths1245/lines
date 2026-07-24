@@ -77,7 +77,8 @@
     .active-listening .status-badge { display: block; background: var(--me-color); color: #000; animation: listen-pulse 1.5s infinite; }
     @keyframes listen-pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
 
-    #transcription-overlay { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); color: var(--text); padding: 12px 24px; border-radius: 30px; font-size: 0.95rem; font-weight: bold; pointer-events: none; opacity: 0; transition: 0.3s; z-index: 100; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; }
+    /* Transcribed Speech Overlay (Now clickable for mobile) */
+    #transcription-overlay { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); color: var(--text); padding: 12px 24px; border-radius: 30px; font-size: 0.95rem; font-weight: bold; opacity: 0; transition: 0.3s; z-index: 100; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; cursor: pointer; pointer-events: auto; }
     #transcription-overlay span { color: var(--highlight); }
   </style>
 </head>
@@ -176,28 +177,25 @@
     const scriptContainer = document.getElementById('script-container');
     const transcriptionOverlay = document.getElementById('transcription-overlay');
 
-    // 1. Boot up sequence (WITH NEW DIAGNOSTICS)
     window.onload = async () => {
       if ('webkitSpeechRecognition' in window) {
         recognition = new webkitSpeechRecognition();
         recognition.continuous = true;
         recognition.interimResults = true;
-        // Indian English for better Hinglish matching
         recognition.lang = 'en-IN'; 
 
-        // Reset overlay UI on start
         recognition.onstart = () => {
           transcriptionOverlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
           transcriptionOverlay.style.color = 'var(--text)';
+          transcriptionOverlay.style.pointerEvents = 'auto'; // ensure tappable
         };
 
-        // NEW: Strict Error Handler
         recognition.onerror = (event) => {
           console.error("Speech Recognition Error:", event.error);
           transcriptionOverlay.style.opacity = '1';
-          transcriptionOverlay.style.backgroundColor = 'var(--danger)'; // Red background
+          transcriptionOverlay.style.backgroundColor = 'var(--danger)'; 
           transcriptionOverlay.style.color = '#fff';
-          transcriptionOverlay.innerHTML = `MIC ERROR: ${event.error.toUpperCase()}<br><span style="font-size:0.8rem; font-weight:normal;">Check console or use SPACEBAR to manually advance.</span>`;
+          transcriptionOverlay.innerHTML = `MIC ERROR: ${event.error.toUpperCase()}<br><span style="font-size:0.8rem; font-weight:normal;">Tap here to manually advance.</span>`;
         };
       }
 
@@ -485,7 +483,7 @@
     function listenForMyLine(expectedText, blockIndex) {
       return new Promise((resolve) => {
         transcriptionOverlay.style.opacity = '1';
-        transcriptionOverlay.innerHTML = 'Listening... <br><span style="font-size:0.8rem; font-weight:normal;">(Press SPACE to skip)</span>';
+        transcriptionOverlay.innerHTML = 'Listening... <br><span style="font-size:0.8rem; font-weight:normal;">(Tap here or press SPACE to skip)</span>';
         
         let hasAdvanced = false;
         
@@ -493,6 +491,10 @@
         const cleanExpected = expectedWords.map(w => w.replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
         const triggerWords = cleanExpected.filter(w => w.length > 0);
         const triggerPhrase = triggerWords.slice(-3).join(" "); 
+        
+        // NEW: Dynamic length requirement based on the line (85% of line length)
+        const expectedLength = expectedText.length;
+        const requiredTranscriptLength = Math.max(10, expectedLength * 0.85); 
 
         recognition.onresult = (event) => {
           if (hasAdvanced) return;
@@ -505,42 +507,45 @@
           }
           
           const currentSpeech = (finalTranscript + " " + interimTranscript).toLowerCase();
-          transcriptionOverlay.innerHTML = `Heard: <span>"${currentSpeech}"</span>`;
+          transcriptionOverlay.innerHTML = `Heard: <span>"${currentSpeech}"</span><br><span style="font-size:0.8rem; font-weight:normal;">(Tap here to skip)</span>`;
 
           cleanExpected.forEach((cleanWord, wIdx) => {
             if (!cleanWord) return;
             const span = document.getElementById(`word-${blockIndex}-${wIdx}`);
             if (!span) return;
-
             const regex = new RegExp(`\\b${cleanWord}\\b`, 'i');
-            
-            if (regex.test(currentSpeech)) {
-              span.classList.add('highlighted-word');
-            } else {
-              span.classList.remove('highlighted-word');
-            }
+            if (regex.test(currentSpeech)) span.classList.add('highlighted-word');
+            else span.classList.remove('highlighted-word');
           });
 
-          if ((triggerPhrase && currentSpeech.includes(triggerPhrase)) || finalTranscript.trim().length > 10) {
+          // NEW: Only advance if trigger phrase is hit, OR if finalized speech length is 85% of total line length
+          if ((triggerPhrase && currentSpeech.includes(triggerPhrase)) || finalTranscript.trim().length > requiredTranscriptLength) {
             finishListening();
           }
         };
 
-        const manualAdvance = (e) => { if (e.code === 'Space') { e.preventDefault(); finishListening(); } };
+        const manualAdvance = (e) => { 
+          if (e && e.code && e.code !== 'Space') return; // Ensure only spacebar triggers if it's a keyboard event
+          e?.preventDefault(); 
+          finishListening(); 
+        };
+        
         window.addEventListener('keydown', manualAdvance);
+        
+        // NEW: Make the overlay tappable for mobile skipping
+        transcriptionOverlay.onclick = () => { finishListening(); };
 
         function finishListening() {
           if (hasAdvanced) return;
           hasAdvanced = true;
           recognition.stop();
           window.removeEventListener('keydown', manualAdvance);
+          transcriptionOverlay.onclick = null; // cleanup click listener
           transcriptionOverlay.style.opacity = '0';
           resolve();
         }
 
-        try { recognition.start(); } catch(e) {
-           console.error("Mic start failed", e);
-        }
+        try { recognition.start(); } catch(e) { console.error("Mic start failed", e); }
       });
     }
   </script>
