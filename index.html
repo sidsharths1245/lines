@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Persistent Chat Rehearsal Partner</title>
+  
+  <!-- PDF.js for parsing script files -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #09090b; --surface: #18181b; --surface-border: #27272a;
+      --text: #fafafa; --text-muted: #a1a1aa;
+      --me-color: #10b981; --me-bg: rgba(16, 185, 129, 0.15);
+      --them-color: #3b82f6; --them-bg: #27272a;
+      --highlight: #fbbf24; --danger: #ef4444;
+    }
+    
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Top Control Bar */
+    .top-bar {
+      background: rgba(24, 24, 27, 0.95); border-bottom: 1px solid var(--surface-border);
+      padding: 15px 20px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: space-between; z-index: 10;
+    }
+    .controls-group { display: flex; gap: 12px; align-items: center; }
+    select, input[type="file"] { background: var(--bg); color: var(--text); border: 1px solid var(--surface-border); padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
+    
+    .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: 0.2s; }
+    .btn-primary { background: var(--text); color: var(--bg); }
+    .btn-primary:disabled { background: var(--surface-border); color: var(--text-muted); cursor: not-allowed; }
+    .btn-stop { background: var(--danger); color: white; }
+    .btn-stop:disabled { display: none; }
+    .btn-clear { background: transparent; border: 1px solid var(--danger); color: var(--danger); font-size: 0.8rem; padding: 6px 12px; }
+    .btn-clear:hover { background: rgba(239, 68, 68, 0.1); }
+
+    /* Script Display - Chat Layout */
+    #script-container {
+      flex: 1; padding: 30px 10%; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
+      scroll-behavior: smooth; font-size: 1.05rem; line-height: 1.5;
+    }
+
+    .scene-heading { align-self: center; background: rgba(255,255,255,0.1); padding: 6px 16px; border-radius: 20px; font-weight: bold; text-transform: uppercase; margin-top: 24px; font-size: 0.85rem; letter-spacing: 1px; color: var(--text); }
+    .action-block { align-self: center; font-style: italic; color: var(--text-muted); font-size: 0.9rem; max-width: 80%; text-align: center; background: rgba(0,0,0,0.3); padding: 10px 15px; border-radius: 12px; }
+
+    .dialogue-block { display: flex; flex-direction: column; max-width: 75%; transition: 0.3s; padding: 12px 16px; border-radius: 18px; }
+    .character-name { font-weight: bold; margin-bottom: 4px; font-size: 0.8rem; letter-spacing: 0.5px; }
+    .dialogue-text { text-align: left; margin-bottom: 8px; }
+
+    /* Real-Time Highlight Styles */
+    .script-word { transition: color 0.1s, text-shadow 0.1s; }
+    .highlighted-word { color: var(--highlight); font-weight: bold; text-shadow: 0 0 8px rgba(251, 191, 36, 0.4); }
+
+    .role-them { align-self: flex-start; background: var(--them-bg); border-bottom-left-radius: 4px; }
+    .role-them .character-name { color: var(--them-color); text-align: left; }
+
+    .role-me { align-self: flex-end; background: var(--me-bg); border: 1px solid rgba(16, 185, 129, 0.3); border-bottom-right-radius: 4px; }
+    .role-me .character-name { color: var(--me-color); text-align: right; }
+    
+    /* Recording UI */
+    .audio-controls { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 12px; margin-top: 4px; }
+    .btn-record-line { background: var(--surface-border); color: var(--text); border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-size: 0.85rem; font-weight: bold; }
+    .btn-record-line.recording { background: var(--danger); color: white; animation: rec-pulse 1s infinite; }
+    .line-audio-player { height: 32px; flex: 1; outline: none; min-width: 150px; }
+    
+    @keyframes rec-pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
+    /* Active State during Rehearsal */
+    .active-reading { border-color: var(--them-color); box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); transform: scale(1.02); }
+    .active-listening { border-color: var(--me-color); box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); transform: scale(1.02); }
+    
+    .status-badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; margin-bottom: 8px; text-align: center; align-self: flex-start; display: none; }
+    .role-me .status-badge { align-self: flex-end; }
+    .active-reading .status-badge { display: block; background: var(--them-color); color: #fff; }
+    .active-listening .status-badge { display: block; background: var(--me-color); color: #000; animation: listen-pulse 1.5s infinite; }
+    @keyframes listen-pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+
+    #transcription-overlay { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); color: var(--text); padding: 12px 24px; border-radius: 30px; font-size: 0.95rem; font-weight: bold; pointer-events: none; opacity: 0; transition: 0.3s; z-index: 100; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; }
+    #transcription-overlay span { color: var(--highlight); }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="controls-group">
+      <input type="file" id="pdf-upload" accept="application/pdf">
+      <select id="my-character-select" disabled>
+        <option value="">1. Upload PDF First</option>
+      </select>
+    </div>
+    <div class="controls-group">
+      <button id="btn-rehearse" class="btn btn-primary" disabled>▶ Start Rehearsal</button>
+      <button id="btn-stop" class="btn btn-stop" disabled>■ Stop</button>
+      <button id="btn-clear" class="btn btn-clear" style="display: none;">🗑 Clear Saved Script</button>
+    </div>
+  </div>
+
+  <div id="script-container">
+    <div style="text-align: center; color: var(--text-muted); margin-top: 50px;">
+      Upload a standard PDF screenplay.<br><br>
+      The AI uses X-Coordinate tracking to analyze your specific Scene, Dialogue, and Character indents.<br><br>
+      Record your own voice for the cue lines directly on the chat bubbles.<br>
+      When rehearsing, the app will play your recordings and listen for your live delivery to advance.
+    </div>
+  </div>
+
+  <div id="transcription-overlay">Listening: "..."</div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    // --- INDEXED DB SETUP FOR PERSISTENCE ---
+    const DB_NAME = 'RehearsalAppDB';
+    const STORE_NAME = 'scriptState';
+    let db;
+
+    function initDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = e => db = e.target.result.createObjectStore(STORE_NAME);
+        request.onsuccess = e => { db = e.target.result; resolve(); };
+        request.onerror = e => reject(e);
+      });
+    }
+
+    async function saveStateToDB() {
+      if (!db) return;
+      return new Promise(resolve => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put({
+          parsedScript, characters: Array.from(characters), myCharacter 
+        }, 'currentSession');
+        tx.oncomplete = resolve;
+      });
+    }
+
+    async function loadStateFromDB() {
+      if (!db) return null;
+      return new Promise(resolve => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const req = tx.objectStore(STORE_NAME).get('currentSession');
+        req.onsuccess = () => resolve(req.result);
+      });
+    }
+
+    async function clearStateFromDB() {
+      if (!db) return;
+      return new Promise(resolve => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).delete('currentSession');
+        tx.oncomplete = resolve;
+      });
+    }
+
+    // --- APP STATE ---
+    let parsedScript = [];
+    let characters = new Set();
+    let myCharacter = "";
+    
+    let isRehearsing = false;
+    let currentLineIndex = 0;
+    let recognition = null;
+    let rehearsalAudio = new Audio();
+    let mediaRecorder = null;
+    let activeRecordingIndex = -1;
+    let audioChunks = [];
+
+    // DOM
+    const uploadInput = document.getElementById('pdf-upload');
+    const charSelect = document.getElementById('my-character-select');
+    const btnRehearse = document.getElementById('btn-rehearse');
+    const btnStop = document.getElementById('btn-stop');
+    const btnClear = document.getElementById('btn-clear');
+    const scriptContainer = document.getElementById('script-container');
+    const transcriptionOverlay = document.getElementById('transcription-overlay');
+
+    // 1. Boot up sequence (WITH NEW DIAGNOSTICS)
+    window.onload = async () => {
+      if ('webkitSpeechRecognition' in window) {
+        recognition = new webkitSpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        // Indian English for better Hinglish matching
+        recognition.lang = 'en-IN'; 
+
+        // Reset overlay UI on start
+        recognition.onstart = () => {
+          transcriptionOverlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
+          transcriptionOverlay.style.color = 'var(--text)';
+        };
+
+        // NEW: Strict Error Handler
+        recognition.onerror = (event) => {
+          console.error("Speech Recognition Error:", event.error);
+          transcriptionOverlay.style.opacity = '1';
+          transcriptionOverlay.style.backgroundColor = 'var(--danger)'; // Red background
+          transcriptionOverlay.style.color = '#fff';
+          transcriptionOverlay.innerHTML = `MIC ERROR: ${event.error.toUpperCase()}<br><span style="font-size:0.8rem; font-weight:normal;">Check console or use SPACEBAR to manually advance.</span>`;
+        };
+      }
+
+      await initDB();
+      const savedData = await loadStateFromDB();
+      
+      if (savedData && savedData.parsedScript.length > 0) {
+        parsedScript = savedData.parsedScript;
+        characters = new Set(savedData.characters);
+        myCharacter = savedData.myCharacter;
+        
+        parsedScript.forEach(block => {
+          if (block.audioBlob) block.audioUrl = URL.createObjectURL(block.audioBlob);
+        });
+        
+        populateCharacterDropdown();
+        charSelect.value = myCharacter;
+        btnRehearse.disabled = !myCharacter;
+        btnClear.style.display = 'block';
+        uploadInput.style.display = 'none';
+        
+        renderScriptUI();
+      }
+    };
+
+    btnClear.onclick = async () => {
+      if(confirm("Are you sure you want to clear your script and all recordings?")) {
+        await clearStateFromDB();
+        location.reload();
+      }
+    };
+
+    // 2. Parse PDF Script (Coordinate Based Extraction)
+    uploadInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      scriptContainer.innerHTML = '<div style="text-align:center;">Analyzing Script Coordinates...</div>';
+      
+      const fileBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument(fileBuffer).promise;
+      let linesWithCoords = [];
+      
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        let currentLineY = null, currentLineText = "", currentLineX = null;
+
+        textContent.items.forEach(item => {
+          const x = item.transform[4];
+          const y = item.transform[5];
+          if (currentLineY === null || Math.abs(y - currentLineY) > 5) {
+            if (currentLineText.trim() !== "") linesWithCoords.push({ text: currentLineText.trim(), x: currentLineX, y: currentLineY });
+            currentLineText = item.str;
+            currentLineX = x;
+            currentLineY = y;
+          } else {
+            currentLineText += " " + item.str;
+          }
+        });
+        if (currentLineText.trim() !== "") linesWithCoords.push({ text: currentLineText.trim(), x: currentLineX, y: currentLineY });
+      }
+      
+      processIndentBasedScript(linesWithCoords);
+      uploadInput.style.display = 'none';
+      btnClear.style.display = 'block';
+    });
+
+    function processIndentBasedScript(lines) {
+      parsedScript = [];
+      characters.clear();
+      let currentCharacter = null, currentDialogue = [];
+      const minX = Math.min(...lines.map(l => l.x));
+
+      lines.forEach(line => {
+        let tLine = line.text.trim();
+        if (!tLine) return;
+        const indentOffset = line.x - minX;
+        let lineType = 'left';
+        
+        if (indentOffset > 120) lineType = 'character';
+        else if (indentOffset > 40) lineType = 'dialogue';
+        else lineType = 'left'; 
+
+        if (lineType === 'character' && tLine.startsWith('(')) lineType = 'dialogue';
+
+        if (lineType === 'left') {
+          if (currentCharacter) saveDialogueBlock(currentCharacter, currentDialogue);
+          currentCharacter = null; 
+          
+          if (tLine.toLowerCase().startsWith("scene ") || tLine.startsWith("INT.") || tLine.startsWith("EXT.")) {
+            parsedScript.push({ type: 'scene', text: tLine });
+          } else {
+            parsedScript.push({ type: 'action', text: tLine });
+          }
+        } 
+        else if (lineType === 'character') {
+          if (currentCharacter) saveDialogueBlock(currentCharacter, currentDialogue);
+          let baseChar = tLine.replace(/\d+/g, '').replace(/\(VO\)|\(OS\)/g, '').trim();
+          currentCharacter = baseChar;
+          if (currentCharacter.length > 0) characters.add(currentCharacter);
+          currentDialogue = [];
+        } 
+        else if (lineType === 'dialogue') {
+          if (currentCharacter) {
+            currentDialogue.push(tLine);
+          } else {
+            parsedScript.push({ type: 'action', text: tLine });
+          }
+        }
+      });
+      
+      if (currentCharacter) saveDialogueBlock(currentCharacter, currentDialogue);
+
+      populateCharacterDropdown();
+      saveStateToDB();
+      renderScriptUI();
+    }
+
+    function saveDialogueBlock(char, dialogArray) {
+      if (dialogArray.length > 0) {
+        parsedScript.push({ type: 'dialogue', character: char, text: dialogArray.join(" "), audioBlob: null, audioUrl: null });
+      }
+    }
+
+    // 3. UI Generation
+    function populateCharacterDropdown() {
+      charSelect.innerHTML = '<option value="">Select Your Character</option>';
+      Array.from(characters).sort().forEach(char => {
+        const opt = document.createElement('option');
+        opt.value = char;
+        opt.textContent = char;
+        charSelect.appendChild(opt);
+      });
+      charSelect.disabled = false;
+    }
+
+    charSelect.addEventListener('change', (e) => {
+      myCharacter = e.target.value;
+      btnRehearse.disabled = !myCharacter;
+      saveStateToDB();
+      renderScriptUI();
+    });
+
+    window.toggleRecord = async function(index) {
+      const btn = document.getElementById(`rec-btn-${index}`);
+      if (activeRecordingIndex === index) {
+        mediaRecorder.stop();
+        btn.classList.remove('recording');
+        btn.innerHTML = '🎤 Re-Record';
+        activeRecordingIndex = -1;
+        return;
+      }
+      if (activeRecordingIndex !== -1) return alert("Please stop the current recording first.");
+      if (!mediaRecorder) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        } catch (err) {
+          return alert("Microphone access is required to record lines.");
+        }
+      }
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks);
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioChunks = [];
+        parsedScript[index].audioBlob = audioBlob;
+        parsedScript[index].audioUrl = audioUrl; 
+        
+        const player = document.getElementById(`audio-player-${index}`);
+        player.src = audioUrl;
+        player.style.display = 'block';
+        saveStateToDB(); 
+      };
+
+      audioChunks = [];
+      activeRecordingIndex = index;
+      mediaRecorder.start();
+      btn.classList.add('recording');
+      btn.innerHTML = '⏹ Stop';
+    };
+
+    function renderScriptUI() {
+      scriptContainer.innerHTML = '';
+      parsedScript.forEach((block, index) => {
+        const el = document.createElement('div');
+        el.id = `block-${index}`;
+        
+        if (block.type === 'scene') {
+          el.className = 'scene-heading';
+          el.textContent = block.text;
+        } else if (block.type === 'action') {
+          el.className = 'action-block';
+          el.textContent = block.text;
+        } else {
+          el.className = `dialogue-block ${block.character === myCharacter ? 'role-me' : 'role-them'}`;
+          
+          let audioDisplay = block.audioUrl ? 'block' : 'none';
+          let btnText = block.audioUrl ? '🎤 Re-Record' : '🎤 Record';
+
+          const textHtml = block.text.split(' ').map((word, wIdx) => {
+            return `<span id="word-${index}-${wIdx}" class="script-word">${word}</span>`;
+          }).join(' ');
+
+          el.innerHTML = `
+            <div class="status-badge"></div>
+            <div class="character-name">${block.character}</div>
+            <div class="dialogue-text">${textHtml}</div>
+            <div class="audio-controls">
+              <button id="rec-btn-${index}" class="btn-record-line" onclick="toggleRecord(${index})">${btnText}</button>
+              <audio id="audio-player-${index}" class="line-audio-player" src="${block.audioUrl || ''}" controls style="display:${audioDisplay};"></audio>
+            </div>
+          `;
+        }
+        scriptContainer.appendChild(el);
+      });
+    }
+
+    // 4. Rehearsal Engine Logic
+    btnRehearse.addEventListener('click', async () => {
+      if (!recognition) return alert("Speech Recognition not supported in this browser. Try Chrome.");
+      
+      isRehearsing = true;
+      btnRehearse.disabled = true;
+      btnStop.disabled = false;
+      charSelect.disabled = true;
+      document.querySelectorAll('.btn-record-line').forEach(btn => btn.disabled = true);
+      
+      for (currentLineIndex = 0; currentLineIndex < parsedScript.length; currentLineIndex++) {
+        if (!isRehearsing) break;
+
+        const block = parsedScript[currentLineIndex];
+        const domEl = document.getElementById(`block-${currentLineIndex}`);
+        
+        domEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        if (block.type === 'scene' || block.type === 'action') continue;
+
+        if (block.character === myCharacter) {
+          domEl.classList.add('active-listening');
+          domEl.querySelector('.status-badge').textContent = 'Listening... (Speak your line)';
+          await listenForMyLine(block.text, currentLineIndex);
+          domEl.classList.remove('active-listening');
+        } else {
+          domEl.classList.add('active-reading');
+          domEl.querySelector('.status-badge').textContent = 'Playing Recording';
+          await playRecordedAudio(block.audioUrl, block.text.length);
+          domEl.classList.remove('active-reading');
+        }
+      }
+      stopRehearsal();
+    });
+
+    btnStop.addEventListener('click', stopRehearsal);
+
+    function stopRehearsal() {
+      isRehearsing = false;
+      btnRehearse.disabled = false;
+      btnStop.disabled = true;
+      charSelect.disabled = false;
+      document.querySelectorAll('.btn-record-line').forEach(btn => btn.disabled = false);
+      
+      if (recognition) recognition.stop();
+      rehearsalAudio.pause();
+      
+      document.querySelectorAll('.active-reading, .active-listening').forEach(el => el.classList.remove('active-reading', 'active-listening'));
+      document.querySelectorAll('.highlighted-word').forEach(el => el.classList.remove('highlighted-word'));
+      transcriptionOverlay.style.opacity = '0';
+    }
+
+    function playRecordedAudio(audioUrl, textLength) {
+      return new Promise((resolve) => {
+        if (audioUrl) {
+          rehearsalAudio.src = audioUrl;
+          rehearsalAudio.onended = resolve;
+          rehearsalAudio.play();
+        } else {
+          setTimeout(resolve, (textLength / 15) * 1000 + 1000);
+        }
+      });
+    }
+
+    function listenForMyLine(expectedText, blockIndex) {
+      return new Promise((resolve) => {
+        transcriptionOverlay.style.opacity = '1';
+        transcriptionOverlay.innerHTML = 'Listening... <br><span style="font-size:0.8rem; font-weight:normal;">(Press SPACE to skip)</span>';
+        
+        let hasAdvanced = false;
+        
+        const expectedWords = expectedText.split(' ');
+        const cleanExpected = expectedWords.map(w => w.replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
+        const triggerWords = cleanExpected.filter(w => w.length > 0);
+        const triggerPhrase = triggerWords.slice(-3).join(" "); 
+
+        recognition.onresult = (event) => {
+          if (hasAdvanced) return;
+          
+          let interimTranscript = '';
+          let finalTranscript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+            else interimTranscript += event.results[i][0].transcript;
+          }
+          
+          const currentSpeech = (finalTranscript + " " + interimTranscript).toLowerCase();
+          transcriptionOverlay.innerHTML = `Heard: <span>"${currentSpeech}"</span>`;
+
+          cleanExpected.forEach((cleanWord, wIdx) => {
+            if (!cleanWord) return;
+            const span = document.getElementById(`word-${blockIndex}-${wIdx}`);
+            if (!span) return;
+
+            const regex = new RegExp(`\\b${cleanWord}\\b`, 'i');
+            
+            if (regex.test(currentSpeech)) {
+              span.classList.add('highlighted-word');
+            } else {
+              span.classList.remove('highlighted-word');
+            }
+          });
+
+          if ((triggerPhrase && currentSpeech.includes(triggerPhrase)) || finalTranscript.trim().length > 10) {
+            finishListening();
+          }
+        };
+
+        const manualAdvance = (e) => { if (e.code === 'Space') { e.preventDefault(); finishListening(); } };
+        window.addEventListener('keydown', manualAdvance);
+
+        function finishListening() {
+          if (hasAdvanced) return;
+          hasAdvanced = true;
+          recognition.stop();
+          window.removeEventListener('keydown', manualAdvance);
+          transcriptionOverlay.style.opacity = '0';
+          resolve();
+        }
+
+        try { recognition.start(); } catch(e) {
+           console.error("Mic start failed", e);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
