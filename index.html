@@ -1,579 +1,700 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Persistent Chat Rehearsal Partner</title>
-  
-  <!-- PDF.js for parsing script files -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-
-  <style>
-    :root {
-      --bg: #09090b; --surface: #18181b; --surface-border: #27272a;
-      --text: #fafafa; --text-muted: #a1a1aa;
-      --me-color: #10b981; --me-bg: rgba(16, 185, 129, 0.15);
-      --them-color: #3b82f6; --them-bg: #27272a;
-      --highlight: #fbbf24; --danger: #ef4444;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Script Rehearsal App</title>
     
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/record.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
 
-    /* Top Control Bar */
-    .top-bar {
-      background: rgba(24, 24, 27, 0.95); border-bottom: 1px solid var(--surface-border);
-      padding: 15px 20px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: space-between; z-index: 10;
-    }
-    .controls-group { display: flex; gap: 12px; align-items: center; }
-    select, input[type="file"] { background: var(--bg); color: var(--text); border: 1px solid var(--surface-border); padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
-    
-    .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: 0.2s; }
-    .btn-primary { background: var(--text); color: var(--bg); }
-    .btn-primary:disabled { background: var(--surface-border); color: var(--text-muted); cursor: not-allowed; }
-    .btn-stop { background: var(--danger); color: white; }
-    .btn-stop:disabled { display: none; }
-    .btn-clear { background: transparent; border: 1px solid var(--danger); color: var(--danger); font-size: 0.8rem; padding: 6px 12px; }
-    .btn-clear:hover { background: rgba(239, 68, 68, 0.1); }
+    <style>
+        :root {
+            --bg: #09090b; --glass-bg: rgba(255, 255, 255, 0.04);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-main: #f4f4f5; --text-muted: #a1a1aa;
+            --accent: #007aff; --accent-glow: rgba(0, 122, 255, 0.4);
+            --danger: #ef4444; --warning: #f5a623;
+            --me-bubble: rgba(0, 122, 255, 0.15); --me-border: rgba(0, 122, 255, 0.3);
+            --other-bubble: rgba(255, 255, 255, 0.05);
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --chat-font-size: 1rem;
+        }
 
-    /* Script Display - Chat Layout */
-    #script-container {
-      flex: 1; padding: 30px 10%; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
-      scroll-behavior: smooth; font-size: 1.05rem; line-height: 1.5;
-    }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font); user-select: none; }
+        p, span, h1, h2 { user-select: text; }
+        body { background: var(--bg); color: var(--text-main); overflow-x: hidden; -webkit-font-smoothing: antialiased; }
 
-    .scene-heading { align-self: center; background: rgba(255,255,255,0.1); padding: 6px 16px; border-radius: 20px; font-weight: bold; text-transform: uppercase; margin-top: 24px; font-size: 0.85rem; letter-spacing: 1px; color: var(--text); }
-    .action-block { align-self: center; font-style: italic; color: var(--text-muted); font-size: 0.9rem; max-width: 80%; text-align: center; background: rgba(0,0,0,0.3); padding: 10px 15px; border-radius: 12px; }
+        .screen { display: none; width: 100vw; height: 100vh; flex-direction: column; }
+        .screen.active { display: flex; }
 
-    .dialogue-block { display: flex; flex-direction: column; max-width: 75%; transition: 0.3s; padding: 12px 16px; border-radius: 18px; }
-    .character-name { font-weight: bold; margin-bottom: 4px; font-size: 0.8rem; letter-spacing: 0.5px; }
-    .dialogue-text { text-align: left; margin-bottom: 8px; }
+        .glass-panel { background: var(--glass-bg); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--glass-border); }
 
-    /* Real-Time Highlight Styles */
-    .script-word { transition: color 0.1s, text-shadow 0.1s; }
-    .highlighted-word { color: var(--highlight); font-weight: bold; text-shadow: 0 0 8px rgba(251, 191, 36, 0.4); }
+        header {
+            display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; 
+            position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--glass-border);
+        }
+        header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
+        
+        .header-actions { display: flex; gap: 15px; align-items: center; }
+        .icon-btn { background: none; border: none; color: var(--text-main); cursor: pointer; padding: 5px; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+        .icon-btn:hover { color: var(--accent); }
+        
+        .content { flex: 1; overflow-y: auto; padding: 20px; padding-bottom: 140px; }
 
-    .role-them { align-self: flex-start; background: var(--them-bg); border-bottom-left-radius: 4px; }
-    .role-them .character-name { color: var(--them-color); text-align: left; }
+        .content.grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; align-content: start; }
+        .card { border-radius: 16px; padding: 18px; cursor: pointer; transition: transform 0.2s ease, background 0.2s; margin-bottom: 15px; }
+        .grid-view .card { margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between; height: 120px; }
+        .card:active { transform: scale(0.96); }
+        .card h2 { font-size: 1.1rem; margin-bottom: 6px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .card p { font-size: 0.85rem; color: var(--text-muted); }
+        
+        .fab {
+            position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%;
+            background: var(--accent); color: white; border: none; box-shadow: 0 0 20px var(--accent-glow);
+            display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 1000; transition: transform 0.2s;
+        }
+        .fab:active { transform: scale(0.95); }
 
-    .role-me { align-self: flex-end; background: var(--me-bg); border: 1px solid rgba(16, 185, 129, 0.3); border-bottom-right-radius: 4px; }
-    .role-me .character-name { color: var(--me-color); text-align: right; }
-    
-    /* Recording UI */
-    .audio-controls { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 12px; margin-top: 4px; }
-    .btn-record-line { background: var(--surface-border); color: var(--text); border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-size: 0.85rem; font-weight: bold; }
-    .btn-record-line.recording { background: var(--danger); color: white; animation: rec-pulse 1s infinite; }
-    .line-audio-player { height: 32px; flex: 1; outline: none; min-width: 150px; }
-    
-    @keyframes rec-pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        #context-menu {
+            position: fixed; display: none; z-index: 3000; background: rgba(20,20,25,0.95);
+            border: 1px solid var(--glass-border); border-radius: 12px; padding: 8px 0;
+            backdrop-filter: blur(16px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); min-width: 160px;
+        }
+        .menu-item { padding: 12px 20px; cursor: pointer; display: flex; align-items: center; gap: 12px; font-size: 0.95rem; }
+        .menu-item:active { background: rgba(255,255,255,0.1); }
+        .menu-item.danger { color: var(--danger); }
 
-    /* Active State during Rehearsal */
-    .active-reading { border-color: var(--them-color); box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); transform: scale(1.02); }
-    .active-listening { border-color: var(--me-color); box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); transform: scale(1.02); }
-    
-    .status-badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; margin-bottom: 8px; text-align: center; align-self: flex-start; display: none; }
-    .role-me .status-badge { align-self: flex-end; }
-    .active-reading .status-badge { display: block; background: var(--them-color); color: #fff; }
-    .active-listening .status-badge { display: block; background: var(--me-color); color: #000; animation: listen-pulse 1.5s infinite; }
-    @keyframes listen-pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+        #char-menu-dropdown {
+            position: absolute; right: 20px; top: 60px; width: 200px; display: none;
+            flex-direction: column; z-index: 2000; border-radius: 12px; padding: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        #char-menu-dropdown select {
+            background: rgba(0,0,0,0.5); color: var(--text-main); border: 1px solid var(--glass-border);
+            padding: 10px; border-radius: 8px; font-size: 1rem; width: 100%; outline: none; cursor: pointer;
+        }
 
-    /* Transcribed Speech Overlay (Clickable) */
-    #transcription-overlay { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); color: var(--text); padding: 12px 24px; border-radius: 30px; font-size: 0.95rem; font-weight: bold; opacity: 0; transition: 0.3s; z-index: 100; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; cursor: pointer; pointer-events: auto; }
-    #transcription-overlay span { color: var(--highlight); }
-  </style>
+        .chat-block { display: flex; flex-direction: column; margin-bottom: 24px; max-width: 88%; }
+        .chat-block.me { align-self: flex-end; align-items: flex-end; }
+        .chat-block.other { align-self: flex-start; align-items: flex-start; }
+        
+        .char-name { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; padding: 0 4px; }
+        .bubble { padding: 14px 18px; border-radius: 18px; font-size: var(--chat-font-size); line-height: 1.5; position: relative; width: 100%; border: 1px solid transparent; }
+        
+        .me .bubble { background: var(--me-bubble); border-color: var(--me-border); border-bottom-right-radius: 4px; }
+        .other .bubble { background: var(--other-bubble); border-color: var(--glass-border); border-bottom-left-radius: 4px; }
+        
+        .action-line { text-align: center; color: var(--text-muted); font-style: italic; font-size: 0.9rem; margin: 25px 0; padding: 0 10%; align-self: center; width: 100%; }
+        
+        .word { transition: all 0.2s ease; border-radius: 3px; }
+        .word.highlight { background: var(--accent); color: #fff; padding: 2px 4px; box-shadow: 0 0 8px var(--accent-glow); }
+        
+        .waveform { height: 40px; width: 100%; margin-top: 15px; display: none; }
+        .waveform.active { display: block; }
+        
+        .audio-controls { display: flex; gap: 12px; margin-top: 12px; align-items: center; justify-content: flex-end; }
+        .audio-btn { 
+            width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer; 
+            display: flex; align-items: center; justify-content: center; 
+            background: rgba(255,255,255,0.08); color: var(--text-main); transition: 0.3s ease;
+        }
+        .btn-glow { background-color: var(--accent); color: white; box-shadow: 0 0 18px var(--accent-glow); border: none; }
+        .audio-btn.recording { background: var(--danger); box-shadow: 0 0 18px rgba(239, 68, 68, 0.5); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+        .bottom-bar {
+            position: fixed; bottom: 0; width: 100%; padding: 20px;
+            display: flex; justify-content: center; gap: 15px; z-index: 100; border-top: 1px solid var(--glass-border);
+        }
+        .primary-btn { 
+            background: var(--text-main); color: var(--bg); border: none; padding: 16px 32px; 
+            border-radius: 30px; font-size: 1rem; font-weight: 600; flex: 1; max-width: 250px;
+            cursor: pointer; box-shadow: 0 4px 15px rgba(255,255,255,0.1); transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px;
+        }
+        .primary-btn.active { background: var(--warning); color: white; box-shadow: 0 0 20px rgba(245, 166, 35, 0.4); }
+        .primary-btn.stop { background: var(--danger); color: white; box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); max-width: 80px; padding: 16px; }
+
+        #overlay { display: none; position: fixed; top:0; left:0; width: 100vw; height: 100vh; background: rgba(9, 9, 11, 0.85); backdrop-filter: blur(10px); z-index: 4000; justify-content: center; align-items: center; flex-direction: column; }
+    </style>
 </head>
 <body>
 
-  <div class="top-bar">
-    <div class="controls-group">
-      <input type="file" id="pdf-upload" accept="application/pdf">
-      <select id="my-character-select" disabled>
-        <option value="">1. Upload PDF First</option>
-      </select>
+    <div id="overlay"><h2 style="color: var(--accent); margin-bottom: 10px;">Processing...</h2></div>
+
+    <!-- Context Menu -->
+    <div id="context-menu">
+        <div class="menu-item" onclick="executeContextAction('rename')">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg> Rename
+        </div>
+        <div class="menu-item" onclick="executeContextAction('duplicate')">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Duplicate
+        </div>
+        <div class="menu-item danger" onclick="executeContextAction('delete')">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete
+        </div>
     </div>
-    <div class="controls-group">
-      <button id="btn-rehearse" class="btn btn-primary" disabled>▶ Start Rehearsal</button>
-      <button id="btn-stop" class="btn btn-stop" disabled>■ Stop</button>
-      <button id="btn-clear" class="btn btn-clear" style="display: none;">🗑 Clear Saved Script</button>
+
+    <!-- SCREEN 1: SCRIPTS -->
+    <div id="scripts-screen" class="screen active">
+        <header class="glass-panel">
+            <h1>My Scripts</h1>
+            <button class="icon-btn" onclick="toggleScriptsView()"><svg id="view-icon-scripts" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"></svg></button>
+        </header>
+        <div class="content" id="scripts-list"></div>
+        <button class="fab" onclick="document.getElementById('pdf-upload').click()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        <input type="file" id="pdf-upload" accept="application/pdf" style="display: none;">
     </div>
-  </div>
 
-  <div id="script-container">
-    <div style="text-align: center; color: var(--text-muted); margin-top: 50px;">
-      Upload a standard PDF screenplay.<br><br>
-      The AI uses X-Coordinate tracking to analyze your specific Scene, Dialogue, and Character indents.<br><br>
-      Record your own voice for the cue lines directly on the chat bubbles.<br>
-      When rehearsing, the app will play your recordings and listen for your live delivery to advance.
+    <!-- SCREEN 2: SCENES -->
+    <div id="scenes-screen" class="screen">
+        <header class="glass-panel">
+            <button class="icon-btn" onclick="nav('scripts-screen')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
+            <h1 id="scene-title-header">Scenes</h1>
+            <button class="icon-btn" onclick="toggleScenesView()"><svg id="view-icon-scenes" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"></svg></button>
+        </header>
+        <div class="content" id="scenes-list"></div>
     </div>
-  </div>
 
-  <div id="transcription-overlay">Listening: "..."</div>
-
-  <script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-
-    // --- INDEXED DB SETUP FOR PERSISTENCE ---
-    const DB_NAME = 'RehearsalAppDB';
-    const STORE_NAME = 'scriptState';
-    let db;
-
-    function initDB() {
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, 1);
-        request.onupgradeneeded = e => db = e.target.result.createObjectStore(STORE_NAME);
-        request.onsuccess = e => { db = e.target.result; resolve(); };
-        request.onerror = e => reject(e);
-      });
-    }
-
-    async function saveStateToDB() {
-      if (!db) return;
-      return new Promise(resolve => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).put({
-          parsedScript, characters: Array.from(characters), myCharacter 
-        }, 'currentSession');
-        tx.oncomplete = resolve;
-      });
-    }
-
-    async function loadStateFromDB() {
-      if (!db) return null;
-      return new Promise(resolve => {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const req = tx.objectStore(STORE_NAME).get('currentSession');
-        req.onsuccess = () => resolve(req.result);
-      });
-    }
-
-    async function clearStateFromDB() {
-      if (!db) return;
-      return new Promise(resolve => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).delete('currentSession');
-        tx.oncomplete = resolve;
-      });
-    }
-
-    // --- APP STATE ---
-    let parsedScript = [];
-    let characters = new Set();
-    let myCharacter = "";
-    
-    let isRehearsing = false;
-    let currentLineIndex = 0;
-    let rehearsalAudio = new Audio();
-    let mediaRecorder = null;
-    let activeRecordingIndex = -1;
-    let audioChunks = [];
-
-    // --- GLOBAL SPEECH ENGINE STATE ---
-    let recognition = null;
-    let activeListenResolve = null;
-    let activeCleanExpected = [];
-    let activeTriggerPhrase = "";
-    let activeRequiredLength = 0;
-    let activeBlockIndex = -1;
-    let hasAdvanced = false;
-
-    // DOM
-    const uploadInput = document.getElementById('pdf-upload');
-    const charSelect = document.getElementById('my-character-select');
-    const btnRehearse = document.getElementById('btn-rehearse');
-    const btnStop = document.getElementById('btn-stop');
-    const btnClear = document.getElementById('btn-clear');
-    const scriptContainer = document.getElementById('script-container');
-    const transcriptionOverlay = document.getElementById('transcription-overlay');
-
-    window.onload = async () => {
-      // 1. Initialize Global Speech Engine
-      if ('webkitSpeechRecognition' in window) {
-        recognition = new webkitSpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-IN'; 
-
-        recognition.onstart = () => {
-          transcriptionOverlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
-          transcriptionOverlay.style.color = 'var(--text)';
-        };
-
-        // GLOBAL ON RESULT (Runs constantly, but only processes when it's your turn)
-        recognition.onresult = (event) => {
-          if (!activeListenResolve || hasAdvanced) return; 
-          
-          let interimTranscript = '';
-          let finalTranscript = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-            else interimTranscript += event.results[i][0].transcript;
-          }
-          
-          const currentSpeech = (finalTranscript + " " + interimTranscript).toLowerCase();
-          transcriptionOverlay.innerHTML = `Heard: <span>"${currentSpeech}"</span><br><span style="font-size:0.8rem; font-weight:normal;">(Tap here to skip)</span>`;
-
-          activeCleanExpected.forEach((cleanWord, wIdx) => {
-            if (!cleanWord) return;
-            const span = document.getElementById(`word-${activeBlockIndex}-${wIdx}`);
-            if (!span) return;
-            const regex = new RegExp(`\\b${cleanWord}\\b`, 'i');
-            if (regex.test(currentSpeech)) span.classList.add('highlighted-word');
-            else span.classList.remove('highlighted-word');
-          });
-
-          if ((activeTriggerPhrase && currentSpeech.includes(activeTriggerPhrase)) || finalTranscript.trim().length > activeRequiredLength) {
-            forceAdvance();
-          }
-        };
-
-        // AUTO-RESTART: Mobile browsers aggressively kill silent mics. If it dies, restart it automatically without breaking the flow.
-        recognition.onend = () => {
-            if (isRehearsing) {
-                try { recognition.start(); } catch(e) {}
-            }
-        };
-
-        recognition.onerror = (event) => {
-          console.error("Speech Recognition Error:", event.error);
-          transcriptionOverlay.style.opacity = '1';
-          transcriptionOverlay.style.backgroundColor = 'var(--danger)'; 
-          transcriptionOverlay.style.color = '#fff';
-          transcriptionOverlay.innerHTML = `MIC ERROR: ${event.error.toUpperCase()}<br><span style="font-size:0.8rem; font-weight:normal;">Tap here to manually advance.</span>`;
-        };
-      }
-
-      await initDB();
-      const savedData = await loadStateFromDB();
-      
-      if (savedData && savedData.parsedScript.length > 0) {
-        parsedScript = savedData.parsedScript;
-        characters = new Set(savedData.characters);
-        myCharacter = savedData.myCharacter;
-        
-        parsedScript.forEach(block => {
-          if (block.audioBlob) block.audioUrl = URL.createObjectURL(block.audioBlob);
-        });
-        
-        populateCharacterDropdown();
-        charSelect.value = myCharacter;
-        btnRehearse.disabled = !myCharacter;
-        btnClear.style.display = 'block';
-        uploadInput.style.display = 'none';
-        
-        renderScriptUI();
-      }
-    };
-
-    // Global Manual Advance Helpers
-    function forceAdvance() {
-      if (hasAdvanced || !activeListenResolve) return;
-      hasAdvanced = true;
-      const tempResolve = activeListenResolve;
-      activeListenResolve = null; // Instantly lock out further processing
-      transcriptionOverlay.style.opacity = '0';
-      tempResolve();
-    }
-
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space' && activeListenResolve) {
-        e.preventDefault();
-        forceAdvance();
-      }
-    });
-
-    transcriptionOverlay.onclick = () => {
-      if (activeListenResolve) forceAdvance();
-    };
-
-
-    btnClear.onclick = async () => {
-      if(confirm("Are you sure you want to clear your script and all recordings?")) {
-        await clearStateFromDB();
-        location.reload();
-      }
-    };
-
-    // 2. Parse PDF Script (Coordinate Based Extraction)
-    uploadInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      scriptContainer.innerHTML = '<div style="text-align:center;">Analyzing Script Coordinates...</div>';
-      
-      const fileBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument(fileBuffer).promise;
-      let linesWithCoords = [];
-      
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        let currentLineY = null, currentLineText = "", currentLineX = null;
-
-        textContent.items.forEach(item => {
-          const x = item.transform[4];
-          const y = item.transform[5];
-          if (currentLineY === null || Math.abs(y - currentLineY) > 5) {
-            if (currentLineText.trim() !== "") linesWithCoords.push({ text: currentLineText.trim(), x: currentLineX, y: currentLineY });
-            currentLineText = item.str;
-            currentLineX = x;
-            currentLineY = y;
-          } else {
-            currentLineText += " " + item.str;
-          }
-        });
-        if (currentLineText.trim() !== "") linesWithCoords.push({ text: currentLineText.trim(), x: currentLineX, y: currentLineY });
-      }
-      
-      processIndentBasedScript(linesWithCoords);
-      uploadInput.style.display = 'none';
-      btnClear.style.display = 'block';
-    });
-
-    function processIndentBasedScript(lines) {
-      parsedScript = [];
-      characters.clear();
-      let currentCharacter = null, currentDialogue = [];
-      const minX = Math.min(...lines.map(l => l.x));
-
-      lines.forEach(line => {
-        let tLine = line.text.trim();
-        if (!tLine) return;
-        const indentOffset = line.x - minX;
-        let lineType = 'left';
-        
-        if (indentOffset > 120) lineType = 'character';
-        else if (indentOffset > 40) lineType = 'dialogue';
-        else lineType = 'left'; 
-
-        if (lineType === 'character' && tLine.startsWith('(')) lineType = 'dialogue';
-
-        if (lineType === 'left') {
-          if (currentCharacter) saveDialogueBlock(currentCharacter, currentDialogue);
-          currentCharacter = null; 
-          
-          if (tLine.toLowerCase().startsWith("scene ") || tLine.startsWith("INT.") || tLine.startsWith("EXT.")) {
-            parsedScript.push({ type: 'scene', text: tLine });
-          } else {
-            parsedScript.push({ type: 'action', text: tLine });
-          }
-        } 
-        else if (lineType === 'character') {
-          if (currentCharacter) saveDialogueBlock(currentCharacter, currentDialogue);
-          let baseChar = tLine.replace(/\d+/g, '').replace(/\(VO\)|\(OS\)/g, '').trim();
-          currentCharacter = baseChar;
-          if (currentCharacter.length > 0) characters.add(currentCharacter);
-          currentDialogue = [];
-        } 
-        else if (lineType === 'dialogue') {
-          if (currentCharacter) {
-            currentDialogue.push(tLine);
-          } else {
-            parsedScript.push({ type: 'action', text: tLine });
-          }
-        }
-      });
-      
-      if (currentCharacter) saveDialogueBlock(currentCharacter, currentDialogue);
-
-      populateCharacterDropdown();
-      saveStateToDB();
-      renderScriptUI();
-    }
-
-    function saveDialogueBlock(char, dialogArray) {
-      if (dialogArray.length > 0) {
-        parsedScript.push({ type: 'dialogue', character: char, text: dialogArray.join(" "), audioBlob: null, audioUrl: null });
-      }
-    }
-
-    // 3. UI Generation
-    function populateCharacterDropdown() {
-      charSelect.innerHTML = '<option value="">Select Your Character</option>';
-      Array.from(characters).sort().forEach(char => {
-        const opt = document.createElement('option');
-        opt.value = char;
-        opt.textContent = char;
-        charSelect.appendChild(opt);
-      });
-      charSelect.disabled = false;
-    }
-
-    charSelect.addEventListener('change', (e) => {
-      myCharacter = e.target.value;
-      btnRehearse.disabled = !myCharacter;
-      saveStateToDB();
-      renderScriptUI();
-    });
-
-    window.toggleRecord = async function(index) {
-      const btn = document.getElementById(`rec-btn-${index}`);
-      if (activeRecordingIndex === index) {
-        mediaRecorder.stop();
-        btn.classList.remove('recording');
-        btn.innerHTML = '🎤 Re-Record';
-        activeRecordingIndex = -1;
-        return;
-      }
-      if (activeRecordingIndex !== -1) return alert("Please stop the current recording first.");
-      if (!mediaRecorder) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaRecorder = new MediaRecorder(stream);
-          mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-        } catch (err) {
-          return alert("Microphone access is required to record lines.");
-        }
-      }
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunks);
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioChunks = [];
-        parsedScript[index].audioBlob = audioBlob;
-        parsedScript[index].audioUrl = audioUrl; 
-        
-        const player = document.getElementById(`audio-player-${index}`);
-        player.src = audioUrl;
-        player.style.display = 'block';
-        saveStateToDB(); 
-      };
-
-      audioChunks = [];
-      activeRecordingIndex = index;
-      mediaRecorder.start();
-      btn.classList.add('recording');
-      btn.innerHTML = '⏹ Stop';
-    };
-
-    function renderScriptUI() {
-      scriptContainer.innerHTML = '';
-      parsedScript.forEach((block, index) => {
-        const el = document.createElement('div');
-        el.id = `block-${index}`;
-        
-        if (block.type === 'scene') {
-          el.className = 'scene-heading';
-          el.textContent = block.text;
-        } else if (block.type === 'action') {
-          el.className = 'action-block';
-          el.textContent = block.text;
-        } else {
-          el.className = `dialogue-block ${block.character === myCharacter ? 'role-me' : 'role-them'}`;
-          
-          let audioDisplay = block.audioUrl ? 'block' : 'none';
-          let btnText = block.audioUrl ? '🎤 Re-Record' : '🎤 Record';
-
-          const textHtml = block.text.split(' ').map((word, wIdx) => {
-            return `<span id="word-${index}-${wIdx}" class="script-word">${word}</span>`;
-          }).join(' ');
-
-          el.innerHTML = `
-            <div class="status-badge"></div>
-            <div class="character-name">${block.character}</div>
-            <div class="dialogue-text">${textHtml}</div>
-            <div class="audio-controls">
-              <button id="rec-btn-${index}" class="btn-record-line" onclick="toggleRecord(${index})">${btnText}</button>
-              <audio id="audio-player-${index}" class="line-audio-player" src="${block.audioUrl || ''}" controls style="display:${audioDisplay};"></audio>
+    <!-- SCREEN 3: CHAT -->
+    <div id="chat-screen" class="screen">
+        <header class="glass-panel">
+            <button class="icon-btn" onclick="nav('scenes-screen')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
+            <h1 id="chat-header">Scene 1</h1>
+            
+            <div class="header-actions">
+                <button class="icon-btn" onclick="changeZoom(-0.1)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+                <button class="icon-btn" onclick="changeZoom(0.1)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+                
+                <button class="icon-btn" onclick="document.getElementById('char-menu-dropdown').style.display = document.getElementById('char-menu-dropdown').style.display === 'flex' ? 'none' : 'flex'">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                </button>
             </div>
-          `;
+            
+            <div id="char-menu-dropdown" class="glass-panel">
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px; text-align:center;">You are playing:</p>
+                <select id="chat-character-select" onchange="changeMeCharacter(this.value)">
+                    <option value="">None Selected</option>
+                </select>
+            </div>
+        </header>
+        
+        <div class="content" style="display: flex; flex-direction: column;" id="chat-container"></div>
+        
+        <div class="bottom-bar glass-panel" id="practice-controls">
+            <button class="primary-btn" id="practice-btn" onclick="togglePractice()">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Practice
+            </button>
+        </div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        /* --- INDEXED DB --- */
+        const DB_NAME = 'RehearsalApp'; const STORE_NAME = 'scripts'; let db;
+        const initDB = () => new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, 2);
+            request.onupgradeneeded = (e) => { if (!e.target.result.objectStoreNames.contains(STORE_NAME)) e.target.result.createObjectStore(STORE_NAME, { keyPath: 'id' }); };
+            request.onsuccess = (e) => { db = e.target.result; resolve(); }; request.onerror = (e) => reject(e);
+        });
+
+        const dbOps = {
+            getAll: () => new Promise(res => { const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).getAll(); req.onsuccess = () => res(req.result || []); }),
+            get: (id) => new Promise(res => { const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(id); req.onsuccess = () => res(req.result); }),
+            save: (data) => new Promise(res => { const req = db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).put(data); req.onsuccess = () => res(); }),
+            delete: (id) => new Promise(res => { const req = db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).delete(id); req.onsuccess = () => res(); })
+        };
+
+        /* --- SVGS --- */
+        const SVG_PLAY = '<path d="M8 5v14l11-7z"/>';
+        const SVG_PAUSE = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+        const SVG_GRID = '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>';
+        const SVG_LIST = '<line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>';
+
+        /* --- STATE LOGIC --- */
+        let currentScript = null, currentScriptId = null, currentSceneIndex = null;
+        let scriptsViewMode = 'list', scenesViewMode = 'list', zoom = 1.0, meChar = '';
+        
+        let activeWavesurfer = null, activeRecord = null, activeWaveContainerId = null;
+        let isPracticing = false, isPaused = false, practiceBlockIndex = 0, recognition = null, currentAudio = null;
+        let isMicRestarting = false; // Prevents the Edge flicker loop
+
+        function nav(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+            destroyActiveWaveform();
+            stopPractice();
         }
-        scriptContainer.appendChild(el);
-      });
-    }
 
-    // 4. Rehearsal Engine Logic
-    btnRehearse.addEventListener('click', async () => {
-      if (!recognition) return alert("Speech Recognition not supported in this browser. Try Chrome.");
-      
-      isRehearsing = true;
-      btnRehearse.disabled = true;
-      btnStop.disabled = false;
-      charSelect.disabled = true;
-      document.querySelectorAll('.btn-record-line').forEach(btn => btn.disabled = true);
-      
-      // Start global microphone ONCE
-      try { recognition.start(); } catch(e) {}
-      
-      for (currentLineIndex = 0; currentLineIndex < parsedScript.length; currentLineIndex++) {
-        if (!isRehearsing) break;
+        /* --- INITIALIZATION --- */
+        window.onload = async () => {
+            await initDB();
+            applyScriptsView(); applyScenesView();
+            document.documentElement.style.setProperty('--chat-font-size', zoom + 'rem');
+            
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRec) { 
+                recognition = new SpeechRec(); 
+                recognition.continuous = true; 
+                recognition.interimResults = true; 
+                recognition.lang = 'en-IN'; // Essential for Hinglish Romanized output
+            }
+            renderScripts();
+        };
 
-        const block = parsedScript[currentLineIndex];
-        const domEl = document.getElementById(`block-${currentLineIndex}`);
-        
-        domEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        if (block.type === 'scene' || block.type === 'action') continue;
-
-        if (block.character === myCharacter) {
-          domEl.classList.add('active-listening');
-          domEl.querySelector('.status-badge').textContent = 'Listening... (Speak your line)';
-          
-          await listenForMyLine(block.text, currentLineIndex); // Execution pauses here until resolved globally
-          
-          domEl.classList.remove('active-listening');
-        } else {
-          domEl.classList.add('active-reading');
-          domEl.querySelector('.status-badge').textContent = 'Playing Recording';
-          await playRecordedAudio(block.audioUrl, block.text.length);
-          domEl.classList.remove('active-reading');
+        /* --- UI CONTROLS --- */
+        function toggleScriptsView() { scriptsViewMode = scriptsViewMode === 'list' ? 'grid' : 'list'; applyScriptsView(); }
+        function applyScriptsView() {
+            document.getElementById('scripts-list').className = scriptsViewMode === 'grid' ? 'content grid-view' : 'content';
+            document.getElementById('view-icon-scripts').innerHTML = scriptsViewMode === 'grid' ? SVG_LIST : SVG_GRID;
         }
-      }
-      stopRehearsal();
-    });
 
-    btnStop.addEventListener('click', stopRehearsal);
-
-    function stopRehearsal() {
-      isRehearsing = false;
-      btnRehearse.disabled = false;
-      btnStop.disabled = true;
-      charSelect.disabled = false;
-      document.querySelectorAll('.btn-record-line').forEach(btn => btn.disabled = false);
-      
-      // Stop global microphone
-      if (recognition) recognition.stop();
-      rehearsalAudio.pause();
-      
-      activeListenResolve = null; // Kill any active listeners
-      
-      document.querySelectorAll('.active-reading, .active-listening').forEach(el => el.classList.remove('active-reading', 'active-listening'));
-      document.querySelectorAll('.highlighted-word').forEach(el => el.classList.remove('highlighted-word'));
-      transcriptionOverlay.style.opacity = '0';
-    }
-
-    function playRecordedAudio(audioUrl, textLength) {
-      return new Promise((resolve) => {
-        if (audioUrl) {
-          rehearsalAudio.src = audioUrl;
-          rehearsalAudio.onended = resolve;
-          rehearsalAudio.play();
-        } else {
-          setTimeout(resolve, (textLength / 15) * 1000 + 1000);
+        function toggleScenesView() { scenesViewMode = scenesViewMode === 'list' ? 'grid' : 'list'; applyScenesView(); }
+        function applyScenesView() {
+            document.getElementById('scenes-list').className = scenesViewMode === 'grid' ? 'content grid-view' : 'content';
+            document.getElementById('view-icon-scenes').innerHTML = scenesViewMode === 'grid' ? SVG_LIST : SVG_GRID;
         }
-      });
-    }
 
-    // Configures the global listener for the current line
-    function listenForMyLine(expectedText, blockIndex) {
-      return new Promise((resolve) => {
-        transcriptionOverlay.style.opacity = '1';
-        transcriptionOverlay.innerHTML = 'Listening... <br><span style="font-size:0.8rem; font-weight:normal;">(Tap here or press SPACE to skip)</span>';
-        
-        hasAdvanced = false;
-        activeBlockIndex = blockIndex;
-        
-        const expectedWords = expectedText.split(' ');
-        activeCleanExpected = expectedWords.map(w => w.replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
-        const triggerWords = activeCleanExpected.filter(w => w.length > 0);
-        activeTriggerPhrase = triggerWords.slice(-3).join(" "); 
-        
-        const expectedLength = expectedText.length;
-        activeRequiredLength = Math.max(10, expectedLength * 0.85); 
-        
-        // Hand off control to the global onresult listener
-        activeListenResolve = resolve;
-      });
-    }
-  </script>
+        function changeZoom(delta) {
+            zoom = Math.max(0.7, Math.min(2.0, zoom + delta));
+            document.documentElement.style.setProperty('--chat-font-size', zoom + 'rem');
+        }
+
+        /* --- LONG PRESS CONTEXT MENU --- */
+        let pressTimer; let contextTargetId = null; let contextType = null;
+        function startPress(e, type, id) {
+            if (e.type === 'touchstart') e.preventDefault();
+            contextTargetId = id; contextType = type;
+            pressTimer = setTimeout(() => showMenu(e), 600);
+        }
+        function cancelPress() { clearTimeout(pressTimer); }
+
+        function showMenu(e) {
+            navigator.vibrate?.(50);
+            const menu = document.getElementById('context-menu'); menu.style.display = 'block';
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            if (clientX + 160 > window.innerWidth) clientX = window.innerWidth - 170;
+            if (clientY + 150 > window.innerHeight) clientY = window.innerHeight - 160;
+            menu.style.left = `${clientX}px`; menu.style.top = `${clientY}px`;
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#context-menu')) document.getElementById('context-menu').style.display = 'none';
+        });
+
+        async function executeContextAction(action) {
+            document.getElementById('context-menu').style.display = 'none';
+            if (!contextTargetId || contextType !== 'script') return;
+            
+            if (action === 'delete') {
+                if(confirm("Permanently delete this script?")) { 
+                    await dbOps.delete(contextTargetId);
+                    if(currentScriptId === contextTargetId) { currentScriptId = null; nav('scripts-screen'); }
+                    renderScripts(); 
+                }
+            } else if (action === 'duplicate') {
+                const original = await dbOps.get(contextTargetId);
+                const copy = JSON.parse(JSON.stringify(original));
+                copy.id = Date.now().toString(); copy.title += " (Copy)"; copy.dateAdded = new Date().toLocaleDateString();
+                await dbOps.save(copy); renderScripts();
+            } else if (action === 'rename') {
+                const original = await dbOps.get(contextTargetId);
+                const newName = prompt("Enter new name:", original.title);
+                if (newName && newName.trim()) {
+                    original.title = newName.trim(); await dbOps.save(original);
+                    if (currentScriptId === contextTargetId) currentScript.title = original.title;
+                    renderScripts();
+                }
+            }
+        }
+
+        /* --- PDF UPLOAD --- */
+        document.getElementById('pdf-upload').addEventListener('change', async (e) => {
+            const file = e.target.files[0]; if (!file) return;
+            document.getElementById('overlay').style.display = 'flex';
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+                let rawLines = [];
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i); const content = await page.getTextContent();
+                    let yMap = {};
+                    content.items.forEach(item => {
+                        if (!item.str.trim()) return;
+                        const y = Math.round(item.transform[5] / 2) * 2; 
+                        if (!yMap[y]) yMap[y] = []; yMap[y].push(item);
+                    });
+                    const yKeys = Object.keys(yMap).map(Number).sort((a, b) => b - a);
+                    let previousY = -1;
+                    yKeys.forEach(y => {
+                        if (previousY !== -1 && (previousY - y) > 20) rawLines.push("EMPTY_LINE"); 
+                        previousY = y; yMap[y].sort((a, b) => a.transform[4] - b.transform[4]);
+                        let lineStr = '', lastX = -1, lastWidth = 0;
+                        yMap[y].forEach(item => {
+                            if (lastX !== -1 && (item.transform[4] - (lastX + lastWidth)) > 4) lineStr += ' ';
+                            lineStr += item.str; lastX = item.transform[4]; lastWidth = item.width;
+                        });
+                        const cleanStr = lineStr.replace(/\s+/g, ' ').trim(); if (cleanStr) rawLines.push(cleanStr);
+                    });
+                }
+                
+                const scenes = []; let currentScene = null, currentSpeaker = null;
+                rawLines.forEach(text => {
+                    if (text === "EMPTY_LINE") { currentSpeaker = null; return; }
+                    if (/^Scene\s*\d+/i.test(text)) { currentScene = { title: text, blocks: [] }; scenes.push(currentScene); currentSpeaker = null; return; }
+                    const charMatch = text.match(/^(Expert|Lappu|RD Sharma|RS Aggarwal|Friend|RD|RS)(?:\s+\d+)?$/i);
+                    if (charMatch) { currentSpeaker = charMatch[1]; currentScene?.blocks.push({ id: Date.now()+Math.random(), type: 'dialogue', character: currentSpeaker, text: '', audioBase64: null, trimStart: 0, trimEnd: 0 }); return; }
+                    if (currentSpeaker && currentScene) {
+                        let block = currentScene.blocks[currentScene.blocks.length - 1];
+                        if (block.type === 'dialogue') block.text += (block.text ? ' ' : '') + text;
+                    } else if (currentScene) {
+                        let last = currentScene.blocks[currentScene.blocks.length - 1];
+                        if (last && last.type === 'action') last.text += ' ' + text; else currentScene.blocks.push({ type: 'action', text: text });
+                    }
+                });
+
+                scenes.forEach(s => s.blocks.forEach(b => {
+                    if (b.type === 'dialogue') {
+                        const match = b.text.match(/[\*(](.*?)[\*)]/);
+                        if (match) { b.parenthetical = match[1].trim(); b.text = b.text.replace(/[\*(].*?[\*)]/g, '').trim(); }
+                    }
+                }));
+
+                const newScript = { id: Date.now().toString(), title: file.name.replace('.pdf', ''), dateAdded: new Date().toLocaleDateString(), scenes: scenes };
+                await dbOps.save(newScript); renderScripts();
+            } catch (err) { alert("Error reading PDF."); }
+            document.getElementById('overlay').style.display = 'none'; e.target.value = '';
+        });
+
+        /* --- RENDERERS --- */
+        async function renderScripts() {
+            const scripts = await dbOps.getAll();
+            const list = document.getElementById('scripts-list');
+            list.innerHTML = scripts.length ? '' : '<p style="text-align:center; color:var(--text-muted); margin-top: 40px;">No scripts imported.</p>';
+            scripts.reverse().forEach(s => {
+                const div = document.createElement('div'); div.className = 'card glass-panel';
+                div.onmousedown = (e) => startPress(e, 'script', s.id); div.ontouchstart = (e) => startPress(e, 'script', s.id);
+                div.onmouseup = cancelPress; div.onmouseleave = cancelPress; div.ontouchend = cancelPress;
+                div.onclick = (e) => { if(!document.getElementById('context-menu').style.display || document.getElementById('context-menu').style.display === 'none') openScript(s.id); };
+                div.innerHTML = `<h2>${s.title}</h2><p>${s.scenes.length} Scenes</p>`;
+                list.appendChild(div);
+            });
+        }
+
+        async function openScript(id) {
+            currentScript = await dbOps.get(id); if (!currentScript) return;
+            currentScriptId = id;
+            document.getElementById('scene-title-header').innerText = currentScript.title;
+            const list = document.getElementById('scenes-list'); list.innerHTML = '';
+            currentScript.scenes.forEach((scene, i) => {
+                const div = document.createElement('div'); div.className = 'card glass-panel';
+                div.onclick = () => openChat(i);
+                div.innerHTML = `<h2>${scene.title}</h2><p>${scene.blocks.filter(b => b.type === 'dialogue').length} dialogue lines</p>`;
+                list.appendChild(div);
+            });
+            nav('scenes-screen');
+        }
+
+        function changeMeCharacter(name) {
+            meChar = name;
+            document.getElementById('char-menu-dropdown').style.display = 'none';
+            if (currentSceneIndex !== null) openChat(currentSceneIndex);
+        }
+
+        function openChat(sceneIndex) {
+            currentSceneIndex = sceneIndex;
+            const scene = currentScript.scenes[sceneIndex];
+            document.getElementById('chat-header').innerText = scene.title;
+            
+            const chars = new Set(); scene.blocks.forEach(b => { if(b.character) chars.add(b.character); });
+            const select = document.getElementById('chat-character-select');
+            select.innerHTML = '<option value="">None Selected</option>';
+            chars.forEach(c => select.innerHTML += `<option value="${c}">${c}</option>`);
+            if (chars.has(meChar)) select.value = meChar;
+
+            const container = document.getElementById('chat-container'); container.innerHTML = '';
+            scene.blocks.forEach((block, bIndex) => {
+                if (block.type === 'action') { container.innerHTML += `<div class="action-line">${block.text}</div>`; return; }
+                const isMe = meChar && block.character && block.character.toLowerCase() === meChar.toLowerCase();
+                const wordsHTML = block.text.split(' ').map((w, i) => `<span id="word-${bIndex}-${i}" class="word">${w}</span>`).join(' ');
+                
+                container.innerHTML += `
+                    <div class="chat-block ${isMe ? 'me' : 'other'}" id="block-wrap-${bIndex}">
+                        <div class="char-name">${block.character} ${isMe ? '(ME)' : ''}</div>
+                        <div class="bubble">
+                            ${block.parenthetical ? `<div style="font-style:italic; font-size:0.8rem; margin-bottom:8px; opacity:0.8;">*${block.parenthetical}*</div>` : ''}
+                            <p id="text-target-${bIndex}">${wordsHTML}</p>
+                            <div class="waveform" id="wave-${bIndex}"></div>
+                            <div class="audio-controls">
+                                ${block.audioBase64 ? `
+                                <button class="audio-btn btn-glow play-btn-toggle" id="play-btn-${bIndex}" onclick="togglePlay(${bIndex})">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">${SVG_PLAY}</svg>
+                                </button>
+                                <button class="audio-btn" onclick="openTrim(${bIndex})" title="Trim Audio">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
+                                </button>` : ''}
+                                <button class="audio-btn" id="rec-btn-${bIndex}" onclick="toggleRecord(${bIndex})">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            nav('chat-screen');
+        }
+
+        /* --- AUDIO LOGIC --- */
+        function destroyActiveWaveform() {
+            if (activeWavesurfer) { activeWavesurfer.destroy(); activeWavesurfer = null; activeRecord = null; }
+            if (activeWaveContainerId) { 
+                const el = document.getElementById(activeWaveContainerId);
+                if(el) el.classList.remove('active'); 
+                activeWaveContainerId = null; 
+            }
+        }
+
+        function updatePlayBtnUI(bIndex, isPlaying) {
+            const btn = document.getElementById(`play-btn-${bIndex}`);
+            if (btn) btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">${isPlaying ? SVG_PAUSE : SVG_PLAY}</svg>`;
+        }
+
+        async function toggleRecord(bIndex) {
+            const btn = document.getElementById(`rec-btn-${bIndex}`);
+            if (activeRecord && activeRecord.isRecording() && activeWaveContainerId === `wave-${bIndex}`) {
+                activeRecord.stopRecording(); btn.classList.remove('recording'); return;
+            }
+            destroyActiveWaveform();
+            document.querySelectorAll('.play-btn-toggle').forEach(el => el.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">${SVG_PLAY}</svg>`);
+            
+            activeWaveContainerId = `wave-${bIndex}`;
+            document.getElementById(activeWaveContainerId).classList.add('active');
+            
+            activeWavesurfer = WaveSurfer.create({
+                container: '#' + activeWaveContainerId, waveColor: 'rgba(255, 255, 255, 0.2)', progressColor: '#ef4444', barWidth: 2, height: 40
+            });
+            activeRecord = activeWavesurfer.registerPlugin(WaveSurfer.Record.create({ renderRecordedAudio: false, mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 320000 }));
+            
+            activeRecord.on('record-end', (blob) => {
+                const reader = new FileReader(); reader.readAsDataURL(blob);
+                reader.onloadend = async () => {
+                    currentScript.scenes[currentSceneIndex].blocks[bIndex].audioBase64 = reader.result;
+                    currentScript.scenes[currentSceneIndex].blocks[bIndex].trimStart = 0;
+                    await dbOps.save(currentScript);
+                    const scrollPos = document.getElementById('chat-container').scrollTop;
+                    openChat(currentSceneIndex);
+                    document.getElementById('chat-container').scrollTop = scrollPos;
+                };
+            });
+            activeRecord.startRecording(); btn.classList.add('recording');
+        }
+
+        async function loadAudio(bIndex, withTrim) {
+            destroyActiveWaveform();
+            const block = currentScript.scenes[currentSceneIndex].blocks[bIndex];
+            activeWaveContainerId = `wave-${bIndex}`;
+            document.getElementById(activeWaveContainerId).classList.add('active');
+            
+            activeWavesurfer = WaveSurfer.create({
+                container: '#' + activeWaveContainerId, waveColor: 'rgba(255, 255, 255, 0.15)', progressColor: '#007aff', height: 40, barWidth: 2, url: block.audioBase64
+            });
+
+            activeWavesurfer.on('play', () => updatePlayBtnUI(bIndex, true));
+            activeWavesurfer.on('pause', () => updatePlayBtnUI(bIndex, false));
+            activeWavesurfer.on('finish', () => updatePlayBtnUI(bIndex, false));
+
+            if (withTrim) {
+                const wsRegions = activeWavesurfer.registerPlugin(WaveSurfer.Regions.create());
+                activeWavesurfer.on('decode', () => {
+                    wsRegions.addRegion({ start: block.trimStart || 0, end: block.trimEnd || activeWavesurfer.getDuration(), content: 'Trim', color: 'rgba(0, 122, 255, 0.1)' });
+                });
+                wsRegions.on('region-updated', async (region) => {
+                    block.trimStart = region.start; block.trimEnd = region.end; await dbOps.save(currentScript);
+                });
+            } else {
+                activeWavesurfer.on('audioprocess', (time) => { if (block.trimEnd && time >= block.trimEnd) activeWavesurfer.pause(); });
+            }
+
+            activeWavesurfer.on('ready', () => { 
+                if(block.trimStart) activeWavesurfer.setTime(block.trimStart); 
+                if (!withTrim) activeWavesurfer.play(); 
+            });
+        }
+
+        async function togglePlay(bIndex) {
+            if (activeWaveContainerId === `wave-${bIndex}` && activeWavesurfer) {
+                if (activeWavesurfer.isPlaying()) activeWavesurfer.pause();
+                else activeWavesurfer.play();
+            } else {
+                document.querySelectorAll('.play-btn-toggle').forEach(btn => {
+                    btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">${SVG_PLAY}</svg>`;
+                });
+                await loadAudio(bIndex, false);
+            }
+        }
+
+        async function openTrim(bIndex) {
+            document.querySelectorAll('.play-btn-toggle').forEach(btn => {
+                btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">${SVG_PLAY}</svg>`;
+            });
+            await loadAudio(bIndex, true); 
+        }
+
+        /* --- HINGLISH FUZZY MATCHING (LEVENSHTEIN) --- */
+        function getEditDistance(a, b) {
+            if (a.length === 0) return b.length;
+            if (b.length === 0) return a.length;
+            const matrix = [];
+            for (let i = 0; i <= b.length; i++) { matrix[i] = [i]; }
+            for (let j = 0; j <= a.length; j++) { matrix[0][j] = j; }
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                        matrix[i][j] = matrix[i - 1][j - 1];
+                    } else {
+                        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+                    }
+                }
+            }
+            return matrix[b.length][a.length];
+        }
+
+        function isFuzzyMatch(spoken, target) {
+            if (spoken === target) return true;
+            
+            const aliases = {
+                'kaun': 'kon', 'kon': 'kaun', 'kahan': 'kahaan', 'kahaan': 'kahan', 'kaha': 'kahan',
+                'hai': 'he', 'he': 'hai', 'main': 'me', 'me': 'main', 'kya': 'kia', 'kia': 'kya',
+                'kyu': 'kyun', 'kyun': 'kyu', 'nahi': 'nai', 'nai': 'nahi', 'kese': 'kaise', 'kaise': 'kese'
+            };
+            if (aliases[spoken] === target || aliases[target] === spoken) return true;
+
+            const dist = getEditDistance(spoken, target);
+            if (target.length <= 3) return dist <= 0; 
+            if (target.length <= 5) return dist <= 1; 
+            return dist <= 2; 
+        }
+
+        /* --- PRACTICE MODE (WITH EDGE TIMEOUT FIX) --- */
+        function getPracticeUI() {
+            if (!isPracticing) return `<button class="primary-btn" onclick="togglePractice()"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Practice</button>`;
+            if (isPaused) return `
+                <button class="primary-btn active" onclick="togglePausePractice()"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Resume</button>
+                <button class="primary-btn stop" onclick="stopPractice()"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12"></rect></svg></button>`;
+            return `
+                <button class="primary-btn active" onclick="togglePausePractice()"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause</button>
+                <button class="primary-btn stop" onclick="stopPractice()"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12"></rect></svg></button>`;
+        }
+
+        function togglePractice() {
+            if (!meChar) return alert("Please select your character from the top-right menu.");
+            isPracticing = true; isPaused = false; practiceBlockIndex = 0; 
+            document.getElementById('practice-controls').innerHTML = getPracticeUI();
+            runPracticeStep();
+        }
+
+        function togglePausePractice() {
+            isPaused = !isPaused; document.getElementById('practice-controls').innerHTML = getPracticeUI();
+            if (isPaused) {
+                if(currentAudio) currentAudio.pause(); 
+                if(recognition) recognition.stop();
+            } else {
+                const block = currentScript.scenes[currentSceneIndex].blocks[practiceBlockIndex];
+                if (block.character.toLowerCase() !== meChar.toLowerCase() && currentAudio) currentAudio.play();
+                else if (block.character.toLowerCase() === meChar.toLowerCase()) listenToMe(block, practiceBlockIndex);
+                else runPracticeStep();
+            }
+        }
+
+        function stopPractice() {
+            isPracticing = false; isPaused = false; isMicRestarting = false;
+            if(recognition) recognition.stop(); if(currentAudio) { currentAudio.pause(); currentAudio = null; }
+            document.querySelectorAll('.word.highlight').forEach(el => el.classList.remove('highlight'));
+            document.getElementById('practice-controls').innerHTML = getPracticeUI();
+        }
+
+        async function runPracticeStep() {
+            if (!isPracticing || isPaused) return;
+            const scene = currentScript.scenes[currentSceneIndex];
+            if (practiceBlockIndex >= scene.blocks.length) { alert("Scene Complete!"); stopPractice(); return; }
+
+            const block = scene.blocks[practiceBlockIndex];
+            const wrap = document.getElementById(`block-wrap-${practiceBlockIndex}`);
+            if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            if (block.type === 'action') {
+                setTimeout(() => { if(!isPaused) { practiceBlockIndex++; runPracticeStep(); } }, 2000); return;
+            }
+
+            if (block.character.toLowerCase() !== meChar.toLowerCase()) {
+                if (block.audioBase64) {
+                    currentAudio = new Audio(block.audioBase64); currentAudio.currentTime = block.trimStart || 0;
+                    currentAudio.ontimeupdate = () => { if (block.trimEnd && currentAudio.currentTime >= block.trimEnd) currentAudio.pause(); };
+                    currentAudio.onpause = () => { if(!isPaused && isPracticing) { practiceBlockIndex++; runPracticeStep(); } };
+                    currentAudio.play();
+                } else { setTimeout(() => { if(!isPaused && isPracticing) { practiceBlockIndex++; runPracticeStep(); } }, 2000); }
+            } else { listenToMe(block, practiceBlockIndex); }
+        }
+
+        function listenToMe(block, bIndex) {
+            const targetWords = block.text.toLowerCase().replace(/[.,!?*()]/g, '').split(' ').filter(w => w.trim()); 
+            let matchedCount = 0;
+            let lineCompleted = false; 
+            
+            recognition.onresult = (e) => {
+                let transcript = ''; for (let i = e.resultIndex; i < e.results.length; ++i) transcript += e.results[i][0].transcript;
+                
+                transcript.toLowerCase().split(' ').forEach(sw => {
+                    sw = sw.replace(/[.,!?]/g, '').trim();
+                    if (!sw) return;
+                    for (let i = matchedCount; i < Math.min(matchedCount + 3, targetWords.length); i++) {
+                        if (isFuzzyMatch(sw, targetWords[i])) {
+                            matchedCount = i + 1; 
+                            for (let j = 0; j < matchedCount; j++) {
+                                document.getElementById(`word-${bIndex}-${j}`)?.classList.add('highlight');
+                            }
+                            break; 
+                        }
+                    }
+                });
+                
+                if (matchedCount >= Math.floor(targetWords.length * 0.8)) {
+                    lineCompleted = true; 
+                    recognition.stop();
+                }
+            };
+            
+            recognition.onerror = (e) => {
+                if (e.error === 'not-allowed') { alert("Microphone access denied."); stopPractice(); }
+                // e.error === 'no-speech' happens on silence timeout. We ignore it and let onend handle the restart.
+            };
+
+            recognition.onend = () => { 
+                if (!isPracticing || isPaused) return; 
+                
+                if (lineCompleted) {
+                    practiceBlockIndex++; 
+                    runPracticeStep(); 
+                } else {
+                    // EDGE FIX: Debounce the restart to prevent audio thread panic loop
+                    if (isMicRestarting) return;
+                    isMicRestarting = true;
+                    setTimeout(() => {
+                        isMicRestarting = false;
+                        if (isPracticing && !isPaused && !lineCompleted) {
+                            try { recognition.start(); } catch (e) {}
+                        }
+                    }, 400); 
+                }
+            };
+            
+            try { recognition.start(); } catch (e) {}
+        }
+    </script>
 </body>
 </html>
